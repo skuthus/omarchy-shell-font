@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
 
@@ -115,13 +116,13 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(320))
+    contentWidth: panel.fittedContentWidth(Style.space(340))
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      enabled: !familyPicker.popupOpen && !weightPicker.popupOpen
+      enabled: !fontSearch.activeFocus && !weightPicker.popupOpen
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -149,17 +150,81 @@ Panel {
           font.pixelSize: Style.font.caption
         }
 
-        SearchableDropdown {
-          id: familyPicker
+        Text {
+          text: "Family"
+          color: root.barForeground
+          opacity: 0.7
+          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+
+        TextField {
+          id: fontSearch
           width: parent.width
-          label: "Family"
-          value: root.draftFamily
-          options: root.fontOptions
-          fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-          foreground: root.barForeground
-          onChanged: function(value) {
-            root.draftFamily = value
-            root.applyDraft()
+          placeholderText: "Search fonts..."
+          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+        }
+
+        ListView {
+          id: fontList
+          width: parent.width
+          height: Style.space(420)
+          clip: true
+          spacing: Style.spacing.xxs
+          boundsBehavior: Flickable.StopAtBounds
+          reuseItems: true
+          currentIndex: -1
+
+          readonly property var filtered: {
+            var q = String(fontSearch.text || "").trim().toLowerCase()
+            var src = root.fontOptions
+            if (!q) return src
+            var out = []
+            for (var i = 0; i < src.length; i++) {
+              if (String(src[i]).toLowerCase().indexOf(q) !== -1) out.push(src[i])
+            }
+            return out
+          }
+
+          model: filtered
+
+          QQC.ScrollBar.vertical: QQC.ScrollBar {
+            policy: fontList.contentHeight > fontList.height ? QQC.ScrollBar.AlwaysOn : QQC.ScrollBar.AsNeeded
+          }
+
+          delegate: Rectangle {
+            required property string modelData
+            required property int index
+            width: fontList.width
+            height: Style.spacing.popupRowHeight
+            radius: Style.cornerRadius
+            color: modelData === root.draftFamily
+              ? Style.selectedFillFor(root.barForeground, Color.accent)
+              : (index === fontList.currentIndex ? Style.hoverFillFor(root.barForeground, Color.accent) : "transparent")
+
+            Text {
+              anchors.fill: parent
+              anchors.leftMargin: Style.spacing.controlPaddingX
+              anchors.rightMargin: Style.spacing.controlPaddingX
+              verticalAlignment: Text.AlignVCenter
+              text: modelData
+              elide: Text.ElideRight
+              color: root.barForeground
+              font.family: modelData
+              font.pixelSize: Style.font.body
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onEntered: fontList.currentIndex = parent.index
+              onClicked: {
+                root.draftFamily = parent.modelData
+                root.applyDraft()
+              }
+            }
           }
         }
 
