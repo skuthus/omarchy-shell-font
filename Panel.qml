@@ -51,6 +51,13 @@ Panel {
   property string draftWeight: "semibold"
   property bool draftReady: false
 
+  readonly property bool dirty: {
+    if (!root.service || !root.service.config) return draftReady
+    var cfg = root.service.config
+    if (!cfg.enabled) return true
+    return draftFamily !== cfg.family || draftWeight !== cfg.weight
+  }
+
   function qtWeight(name) {
     switch (String(name)) {
       case "thin": return Font.Thin
@@ -220,10 +227,7 @@ Panel {
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
               onEntered: fontList.currentIndex = parent.index
-              onClicked: {
-                root.draftFamily = parent.modelData
-                root.applyDraft()
-              }
+              onClicked: root.draftFamily = parent.modelData
             }
           }
         }
@@ -238,7 +242,6 @@ Panel {
           foreground: root.barForeground
           onChanged: function(value) {
             root.draftWeight = value
-            root.applyDraft()
           }
         }
 
@@ -276,6 +279,17 @@ Panel {
               font.pixelSize: Style.font.caption
             }
           }
+        }
+
+        Button {
+          width: parent.width
+          text: dirty ? "Apply" : "Applied"
+          fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+          foreground: root.barForeground
+          bordered: true
+          selected: dirty
+          enabled: dirty
+          onClicked: root.applyDraft()
         }
 
         Button {
