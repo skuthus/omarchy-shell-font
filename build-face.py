@@ -2,11 +2,15 @@
 """Extract one installed face and rewrite it as OmarchyShellFont Regular."""
 from __future__ import annotations
 
+import errno
 import math
 import os
+import stat
 import struct
 import subprocess
 import sys
+
+MAX_FONT_BYTES = 16 * 1024 * 1024
 
 FAMILY = "OmarchyShellFont"
 SUBFAMILY = "Regular"
@@ -182,8 +186,20 @@ def fc_match(family: str, weight: str) -> tuple[str, int]:
     if not path:
         raise SystemExit(f"no font matched {query!r}")
     path = os.path.realpath(path)
-    if not os.path.isfile(path):
-        raise SystemExit(f"font file missing: {path}")
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.EMLINK):
+            raise SystemExit("font path is a symlink") from exc
+        raise SystemExit(f"font open failed: {exc.errno}") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise SystemExit("font is not a regular file")
+        if st.st_size <= 0 or st.st_size > MAX_FONT_BYTES:
+            raise SystemExit("font file too large")
+    finally:
+        os.close(fd)
     return path, index
 
 
@@ -208,7 +224,14 @@ def weight_const(weight: str) -> str:
 
 def build(family: str, weight: str, dest: str) -> None:
     src, index = fc_match(family, weight_const(weight))
-    data = extract_face(open(src, "rb").read(), index)
+    fd = os.open(src, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        raw = os.read(fd, MAX_FONT_BYTES + 1)
+    finally:
+        os.close(fd)
+    if len(raw) > MAX_FONT_BYTES:
+        raise SystemExit("font file too large")
+    data = extract_face(raw, index)
     num_tables = read_u16(data, 4)
     name_raw = None
     for i in range(num_tables):
