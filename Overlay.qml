@@ -205,14 +205,63 @@ Item {
           font.bold: true
         }
 
-        Text {
+        Rectangle {
+          id: searchField
           width: parent.width
-          text: root.query.length ? root.query : "Type to filter"
-          color: Color.menu.text
-          opacity: root.query.length ? 1 : 0.55
-          font.family: Style.font.menuFamily
-          font.pixelSize: Style.font.title
-          elide: Text.ElideRight
+          height: Math.max(Style.space(34), searchRow.implicitHeight + Style.spacing.inputPaddingY * 2)
+          radius: Style.cornerRadius
+          color: Style.controlFill(true, false, Color.menu.text, Color.accent)
+          border.width: Style.focusBorderWidth
+          border.color: Style.focusBorderColor
+
+          Row {
+            id: searchRow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Style.spacing.controlPaddingX
+            anchors.rightMargin: Style.spacing.controlPaddingX
+            spacing: 1
+
+            Text {
+              text: root.query.length ? root.query : "Type to filter"
+              color: Color.menu.text
+              opacity: root.query.length ? 1 : 0.5
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.title
+              elide: Text.ElideRight
+              width: Math.max(0, searchField.width - Style.spacing.controlPaddingX * 2 - caret.width - 2)
+            }
+
+            Rectangle {
+              id: caret
+              visible: root.opened
+              width: 1
+              height: Style.font.title
+              anchors.verticalCenter: parent.verticalCenter
+              color: Color.menu.text
+              opacity: caretBlink.phase ? 1 : 0
+
+              Timer {
+                id: caretBlink
+                property bool phase: true
+                interval: 530
+                running: root.opened
+                repeat: true
+                onTriggered: phase = !phase
+              }
+            }
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.IBeamCursor
+            onClicked: {
+              caretBlink.phase = true
+              caretBlink.restart()
+              keyCatcher.forceActiveFocus()
+            }
+          }
         }
 
         ListView {
