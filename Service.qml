@@ -11,10 +11,7 @@ Item {
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.config/omarchy/shell-font.json"
-  readonly property string pluginDir: {
-    var url = String(Qt.resolvedUrl("."))
-    return url.replace(/^file:\/\//, "").replace(/\/$/, "")
-  }
+  readonly property string pluginDir: home + "/.config/omarchy/plugins/skuthus.shell-font"
   readonly property string applyScript: pluginDir + "/apply-font.sh"
   readonly property string privateFamily: "OmarchyShellFont"
 
@@ -22,6 +19,7 @@ Item {
   property bool ready: false
   property bool applyQueued: false
   property bool restartAfterApply: false
+  property bool writingConfig: false
   property string lastStatus: ""
 
   function defaultConfig() {
@@ -39,14 +37,6 @@ Item {
     return next
   }
 
-  function qtHasFamily(name) {
-    var families = Qt.fontFamilies() || []
-    for (var i = 0; i < families.length; i++) {
-      if (String(families[i]) === name) return true
-    }
-    return false
-  }
-
   function applyStyle() {
     if (!root.config.enabled) {
       Style.fontFamily = "monospace"
@@ -61,13 +51,16 @@ Item {
 
   function saveConfig(next, restartIfNeeded) {
     root.config = mergeConfig(next)
+    root.writingConfig = true
     var json = JSON.stringify(root.config, null, 2) + "\n"
     if (typeof configFile.setText === "function") configFile.setText(json)
     queueApply(restartIfNeeded !== false)
   }
 
   function queueApply(restartIfNeeded) {
-    root.restartAfterApply = restartIfNeeded === true
+    // A FileView reload must not cancel a user-requested restart.
+    if (restartIfNeeded) root.restartAfterApply = true
+    else if (!applyProc.running && !root.applyQueued) root.restartAfterApply = false
     if (applyProc.running) {
       root.applyQueued = true
       return
@@ -85,9 +78,7 @@ Item {
 
   function maybeRestart() {
     if (!root.restartAfterApply) return
-    if (!root.config.enabled) return
-    if (root.config.weight === "regular") return
-    // Qt caches faces; a new weight only paints after the shell restarts.
+    root.restartAfterApply = false
     Quickshell.execDetached(["omarchy", "restart", "shell"])
   }
 
@@ -99,6 +90,10 @@ Item {
     printErrors: false
 
     onLoaded: {
+      if (root.writingConfig) {
+        root.writingConfig = false
+        return
+      }
       var raw = typeof configFile.text === "function" ? configFile.text() : configFile.text
       try {
         root.config = root.mergeConfig(raw && String(raw).trim() ? JSON.parse(String(raw)) : {})
@@ -111,18 +106,32 @@ Item {
     }
 
     onLoadFailed: {
+      root.writingConfig = false
       root.config = root.defaultConfig()
       root.ready = true
     }
 
-    onFileChanged: configFile.reload()
+    onFileChanged: {
+      if (root.writingConfig) return
+      configFile.reload()
+    }
   }
 
   Process {
     id: applyProc
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.lastStatus = String(text || "").trim()
+      onStreamFinished: {
+        var out = String(text || "").trim()
+        if (out.length > 0) root.lastStatus = out
+      }
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var err = String(text || "").trim()
+        if (err.length > 0) root.lastStatus = err
+      }
     }
     onExited: function(code) {
       if (code === 0) root.applyStyle()
