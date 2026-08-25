@@ -11,14 +11,11 @@ Item {
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.config/omarchy/shell-font.json"
-  readonly property string pluginDir: home + "/.config/omarchy/plugins/skuthus.shell-font"
-  readonly property string applyScript: pluginDir + "/apply-font.sh"
+  readonly property string applyScript: home + "/.config/omarchy/plugins/skuthus.shell-font/apply-font.sh"
   readonly property string privateFamily: "OmarchyShellFont"
 
   property var config: ({ enabled: false, family: "monospace", weight: "regular" })
   property bool ready: false
-  property bool applyQueued: false
-  property bool restartAfterApply: false
   property bool writingConfig: false
   property string lastStatus: ""
 
@@ -49,37 +46,28 @@ Item {
     Style.fontFamily = root.privateFamily
   }
 
+  function shellQuote(value) {
+    return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
+  }
+
+  function applyNow(restart) {
+    var cmd
+    if (root.config.enabled && root.config.family) {
+      cmd = shellQuote(root.applyScript) + " " + shellQuote(root.config.family) + " " + shellQuote(root.config.weight)
+    } else {
+      cmd = shellQuote(root.applyScript) + " --reset"
+    }
+    if (restart) cmd += " && omarchy restart shell"
+    applyStyle()
+    Quickshell.execDetached(["bash", "-lc", cmd])
+  }
+
   function saveConfig(next, restartIfNeeded) {
     root.config = mergeConfig(next)
     root.writingConfig = true
     var json = JSON.stringify(root.config, null, 2) + "\n"
     if (typeof configFile.setText === "function") configFile.setText(json)
-    queueApply(restartIfNeeded !== false)
-  }
-
-  function queueApply(restartIfNeeded) {
-    // A FileView reload must not cancel a user-requested restart.
-    if (restartIfNeeded) root.restartAfterApply = true
-    else if (!applyProc.running && !root.applyQueued) root.restartAfterApply = false
-    if (applyProc.running) {
-      root.applyQueued = true
-      return
-    }
-    runApply()
-  }
-
-  function runApply() {
-    if (root.config.enabled && root.config.family)
-      applyProc.command = ["bash", root.applyScript, root.config.family, root.config.weight]
-    else
-      applyProc.command = ["bash", root.applyScript, "--reset"]
-    applyProc.running = true
-  }
-
-  function maybeRestart() {
-    if (!root.restartAfterApply) return
-    root.restartAfterApply = false
-    Quickshell.execDetached(["omarchy", "restart", "shell"])
+    applyNow(restartIfNeeded !== false)
   }
 
   FileView {
@@ -102,7 +90,7 @@ Item {
         root.config = root.defaultConfig()
       }
       root.ready = true
-      root.queueApply(false)
+      root.applyNow(false)
     }
 
     onLoadFailed: {
@@ -114,34 +102,6 @@ Item {
     onFileChanged: {
       if (root.writingConfig) return
       configFile.reload()
-    }
-  }
-
-  Process {
-    id: applyProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var out = String(text || "").trim()
-        if (out.length > 0) root.lastStatus = out
-      }
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var err = String(text || "").trim()
-        if (err.length > 0) root.lastStatus = err
-      }
-    }
-    onExited: function(code) {
-      if (code === 0) root.applyStyle()
-      else console.warn("skuthus.shell-font: apply failed:", root.lastStatus)
-      if (root.applyQueued) {
-        root.applyQueued = false
-        root.runApply()
-        return
-      }
-      if (code === 0) root.maybeRestart()
     }
   }
 }
