@@ -57,6 +57,7 @@ Panel {
     if (!cfg.enabled) return true
     return draftFamily !== cfg.family || draftWeight !== cfg.weight
   }
+  readonly property bool applying: !!(root.service && root.service.applying)
 
   function qtWeight(name) {
     switch (String(name)) {
@@ -283,12 +284,12 @@ Panel {
 
         Button {
           width: parent.width
-          text: dirty ? "Apply" : "Applied"
+          text: applying ? "Applying…" : (dirty ? "Apply" : "Applied")
           fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
           foreground: root.barForeground
           bordered: true
-          selected: dirty
-          enabled: dirty
+          selected: dirty && !applying
+          enabled: dirty && !applying
           onClicked: root.applyDraft()
         }
 

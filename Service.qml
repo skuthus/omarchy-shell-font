@@ -12,12 +12,24 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.config/omarchy/shell-font.json"
   readonly property string applyScript: home + "/.config/omarchy/plugins/skuthus.shell-font/apply-font.sh"
+  readonly property string facePath: home + "/.local/share/fonts/omarchy-shell-font/OmarchyShellFont.ttf"
   readonly property string privateFamily: "OmarchyShellFont"
 
   property var config: ({ enabled: false, family: "monospace", weight: "regular" })
   property bool ready: false
   property bool writingConfig: false
+  property bool applying: false
   property string lastStatus: ""
+  property int faceEpoch: 0
+
+  FontLoader {
+    id: faceLoader
+    source: root.config.enabled && root.faceEpoch >= 0 ? ("file://" + root.facePath + "?v=" + root.faceEpoch) : ""
+    onStatusChanged: {
+      if (status === FontLoader.Ready && root.config.enabled && name)
+        Style.fontFamily = name
+    }
+  }
 
   function defaultConfig() {
     return { enabled: false, family: "monospace", weight: "regular" }
@@ -35,27 +47,27 @@ Item {
   }
 
   function applyStyle() {
-    // Qt cannot load the synthetic OmarchyShellFont name from a font's
-    // name table — it falls back to a symbol face and scrambles the UI.
-    // Keep the QML family on the fontconfig alias; apply-font.sh remaps
-    // quickshell's monospace request to the chosen face.
-    Style.fontFamily = "monospace"
-  }
-
-  function shellQuote(value) {
-    return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
-  }
-
-  function applyNow(restart) {
-    var cmd
-    if (root.config.enabled && root.config.family) {
-      cmd = shellQuote(root.applyScript) + " " + shellQuote(root.config.family) + " " + shellQuote(root.config.weight)
-    } else {
-      cmd = shellQuote(root.applyScript) + " --reset"
+    if (!root.config.enabled) {
+      Style.fontFamily = "monospace"
+      return
     }
-    if (restart) cmd += " && omarchy restart shell"
-    applyStyle()
-    Quickshell.execDetached(["bash", "-lc", cmd])
+    if (faceLoader.status === FontLoader.Ready && faceLoader.name)
+      Style.fontFamily = faceLoader.name
+    else
+      Style.fontFamily = "monospace"
+  }
+
+  function runApply(restartWhenDone) {
+    if (applyProc.running) {
+      applyProc.running = false
+    }
+    root.applying = true
+    applyProc.restartWhenDone = restartWhenDone === true
+    if (root.config.enabled && root.config.family)
+      applyProc.command = ["/usr/bin/bash", root.applyScript, root.config.family, root.config.weight]
+    else
+      applyProc.command = ["/usr/bin/bash", root.applyScript, "--reset"]
+    applyProc.running = true
   }
 
   function saveConfig(next, restartIfNeeded) {
@@ -63,7 +75,7 @@ Item {
     root.writingConfig = true
     var json = JSON.stringify(root.config, null, 2) + "\n"
     if (typeof configFile.setText === "function") configFile.setText(json)
-    applyNow(restartIfNeeded !== false)
+    runApply(restartIfNeeded !== false)
   }
 
   FileView {
@@ -86,18 +98,50 @@ Item {
         root.config = root.defaultConfig()
       }
       root.ready = true
-      root.applyNow(false)
+      root.faceEpoch = Date.now()
+      root.applyStyle()
     }
 
     onLoadFailed: {
       root.writingConfig = false
       root.config = root.defaultConfig()
       root.ready = true
+      root.applyStyle()
     }
 
     onFileChanged: {
       if (root.writingConfig) return
       configFile.reload()
+    }
+  }
+
+  Process {
+    id: applyProc
+    property bool restartWhenDone: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var out = String(text || "").trim()
+        if (out.length > 0) root.lastStatus = out
+      }
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var err = String(text || "").trim()
+        if (err.length > 0) root.lastStatus = err
+      }
+    }
+    onExited: function(code) {
+      root.applying = false
+      if (code !== 0) {
+        console.warn("skuthus.shell-font: apply failed:", root.lastStatus)
+        return
+      }
+      root.faceEpoch = Date.now()
+      root.applyStyle()
+      if (applyProc.restartWhenDone)
+        Quickshell.execDetached(["omarchy", "restart", "shell"])
     }
   }
 }
