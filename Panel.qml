@@ -213,17 +213,6 @@ Panel {
           }
         }
 
-        Text {
-          width: parent.width
-          visible: !!(root.service && root.service.lastStatus)
-          text: root.service ? root.service.lastStatus : ""
-          color: root.barForeground
-          opacity: 0.55
-          wrapMode: Text.WordWrap
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-
         Button {
           width: parent.width
           text: "Use system monospace"
