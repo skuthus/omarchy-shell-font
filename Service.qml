@@ -13,10 +13,21 @@ Item {
   readonly property string pluginDir: home + "/.config/omarchy/plugins/skuthus.shell-font"
   readonly property string applyScript: pluginDir + "/apply-font.sh"
   readonly property string configTool: pluginDir + "/read-config.py"
+  readonly property string facePath: home + "/.local/share/fonts/omarchy-shell-font/OmarchyShellFont.ttf"
 
   property var config: ({ enabled: false, family: "monospace", weight: "regular" })
   property bool ready: false
   property bool applying: false
+  property int faceEpoch: 0
+
+  FontLoader {
+    id: faceLoader
+    source: root.config.enabled && root.faceEpoch > 0 ? ("file://" + root.facePath + "?v=" + root.faceEpoch) : ""
+    onStatusChanged: {
+      if (status === FontLoader.Ready)
+        root.applyStyle()
+    }
+  }
 
   function defaultConfig() {
     return { enabled: false, family: "monospace", weight: "regular" }
@@ -34,25 +45,39 @@ Item {
   }
 
   function applyStyle() {
-    // Use the real family name. Never replace Quickshell's "monospace"
-    // alias — bar icons need the Nerd Font fallback on that alias.
-    Style.fontFamily = (root.config.enabled && root.config.family)
-      ? root.config.family
-      : "monospace"
+    if (!root.config.enabled) {
+      Style.fontFamily = "monospace"
+      return
+    }
+    // Prefer the extracted single-weight face so Qt cannot ignore weight.
+    // Fall back to the real family name if the face is not loaded yet.
+    if (faceLoader.status === FontLoader.Ready && faceLoader.name)
+      Style.fontFamily = faceLoader.name
+    else
+      Style.fontFamily = root.config.family
+  }
+
+  function applyCommand() {
+    if (root.config.enabled && root.config.family)
+      return ["/usr/bin/bash", "-c", "exec >/dev/null 2>/dev/null; exec \"$0\" \"$1\" \"$2\"", root.applyScript, root.config.family, root.config.weight]
+    return ["/usr/bin/bash", "-c", "exec >/dev/null 2>/dev/null; exec \"$0\" --reset", root.applyScript]
+  }
+
+  function runApply(restartWhenDone) {
+    if (applyProc.running) applyProc.running = false
+    root.applying = true
+    applyProc.restartWhenDone = restartWhenDone === true
+    applyProc.command = root.applyCommand()
+    applyProc.running = true
   }
 
   function saveConfig(next, restartIfNeeded) {
     root.config = mergeConfig(next)
-    writeProc.restartWhenDone = restartIfNeeded === true
+    root.applying = true
+    writeProc.restartWhenDone = restartIfNeeded !== false
     writeProc.running = false
     writeProc.command = ["/usr/bin/python3", root.configTool, "write"]
     writeProc.running = true
-  }
-
-  function clearRemap() {
-    if (resetProc.running) resetProc.running = false
-    resetProc.command = ["/usr/bin/bash", "-c", "exec >/dev/null 2>/dev/null; exec \"$0\" --reset", root.applyScript]
-    resetProc.running = true
   }
 
   Process {
@@ -71,7 +96,8 @@ Item {
         }
         root.ready = true
         root.applyStyle()
-        root.clearRemap()
+        if (root.config.enabled)
+          root.runApply(false)
       }
     }
     onExited: function(code) {
@@ -89,21 +115,29 @@ Item {
     stdinEnabled: true
     onStarted: writeProc.write(JSON.stringify(root.config) + "\n")
     onExited: function(code) {
-      root.applying = false
       if (code !== 0) {
+        root.applying = false
         console.warn("skuthus.shell-font: config write failed")
         return
       }
-      root.applyStyle()
-      root.clearRemap()
-      if (writeProc.restartWhenDone)
-        Quickshell.execDetached(["omarchy", "restart", "shell"])
+      root.runApply(writeProc.restartWhenDone)
     }
   }
 
   Process {
-    id: resetProc
+    id: applyProc
+    property bool restartWhenDone: false
+    onExited: function(code) {
+      root.applying = false
+      if (code !== 0) {
+        console.warn("skuthus.shell-font: apply failed")
+        root.applyStyle()
+        return
+      }
+      root.faceEpoch = Date.now()
+      root.applyStyle()
+      if (applyProc.restartWhenDone)
+        Quickshell.execDetached(["omarchy", "restart", "shell"])
+    }
   }
-
-  Component.onCompleted: root.applying = false
 }

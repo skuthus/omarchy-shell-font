@@ -81,7 +81,8 @@ apply_font() {
   owned_dir "$FONT_DIR"
   find "$FONT_DIR" -mindepth 1 -maxdepth 1 -delete
   python3 "$BUILD" "$family" "$weight" "$FACE"
-  write_conf
+  # Do not remap Quickshell "monospace" — icons need that alias.
+  rm -f "$CONF"
   fc-cache -f "$FONT_DIR" >/dev/null 2>&1 || true
   local resolved
   resolved=$(fc-match -f '%{family} %{file}' OmarchyShellFont)
