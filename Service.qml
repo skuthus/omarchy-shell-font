@@ -14,13 +14,10 @@ Item {
   readonly property string applyScript: pluginDir + "/apply-font.sh"
   readonly property string configTool: pluginDir + "/read-config.py"
   readonly property string facePath: home + "/.local/share/fonts/omarchy-shell-font/OmarchyShellFont.ttf"
-  readonly property string privateFamily: "OmarchyShellFont"
-  readonly property int statusLimit: 200
 
   property var config: ({ enabled: false, family: "monospace", weight: "regular" })
   property bool ready: false
   property bool applying: false
-  property string lastStatus: ""
   property int faceEpoch: 0
 
   FontLoader {
@@ -47,12 +44,6 @@ Item {
     return next
   }
 
-  function clipStatus(value) {
-    var s = String(value || "").replace(/\s+/g, " ").trim()
-    if (s.length > root.statusLimit) s = s.slice(s.length - root.statusLimit)
-    return s
-  }
-
   function applyStyle() {
     if (!root.config.enabled) {
       Style.fontFamily = "monospace"
@@ -64,10 +55,6 @@ Item {
       Style.fontFamily = "monospace"
   }
 
-  function loadConfig() {
-    if (!readProc.running) readProc.running = true
-  }
-
   function saveConfig(next, restartIfNeeded) {
     root.config = mergeConfig(next)
     writeProc.restartWhenDone = restartIfNeeded !== false
@@ -76,14 +63,18 @@ Item {
     writeProc.running = true
   }
 
+  function applyCommand() {
+    // Discard helper stdio in the child so Quickshell never buffers it.
+    if (root.config.enabled && root.config.family)
+      return ["/usr/bin/bash", "-c", "exec >/dev/null 2>/dev/null; exec \"$0\" \"$1\" \"$2\"", root.applyScript, root.config.family, root.config.weight]
+    return ["/usr/bin/bash", "-c", "exec >/dev/null 2>/dev/null; exec \"$0\" --reset", root.applyScript]
+  }
+
   function runApply(restartWhenDone) {
     if (applyProc.running) applyProc.running = false
     root.applying = true
     applyProc.restartWhenDone = restartWhenDone === true
-    if (root.config.enabled && root.config.family)
-      applyProc.command = ["/usr/bin/bash", root.applyScript, root.config.family, root.config.weight]
-    else
-      applyProc.command = ["/usr/bin/bash", root.applyScript, "--reset"]
+    applyProc.command = root.applyCommand()
     applyProc.running = true
   }
 
@@ -95,11 +86,10 @@ Item {
       waitForEnd: true
       onStreamFinished: {
         try {
-          var raw = String(text || "").trim()
-          if (raw.length > 2048) raw = raw.slice(0, 2048)
-          root.config = root.mergeConfig(raw ? JSON.parse(raw) : {})
+          var raw = String(text || "")
+          if (raw.length > 512) raw = raw.slice(0, 512)
+          root.config = root.mergeConfig(raw.trim() ? JSON.parse(raw.trim()) : {})
         } catch (e) {
-          console.warn("skuthus.shell-font: bad config")
           root.config = root.defaultConfig()
         }
         root.ready = true
@@ -107,7 +97,6 @@ Item {
         root.applyStyle()
       }
     }
-    stderr: StdioCollector { waitForEnd: true }
     onExited: function(code) {
       if (code !== 0) {
         root.config = root.defaultConfig()
@@ -121,8 +110,6 @@ Item {
     id: writeProc
     property bool restartWhenDone: false
     stdinEnabled: true
-    stdout: StdioCollector { waitForEnd: true }
-    stderr: StdioCollector { waitForEnd: true }
     onStarted: writeProc.write(JSON.stringify(root.config) + "\n")
     onExited: function(code) {
       if (code !== 0) {
@@ -136,20 +123,6 @@ Item {
   Process {
     id: applyProc
     property bool restartWhenDone: false
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var out = root.clipStatus(text)
-        if (out.length) root.lastStatus = out
-      }
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var err = root.clipStatus(text)
-        if (err.length) root.lastStatus = err
-      }
-    }
     onExited: function(code) {
       root.applying = false
       if (code !== 0) {
@@ -162,6 +135,4 @@ Item {
         Quickshell.execDetached(["omarchy", "restart", "shell"])
     }
   }
-
-  Component.onCompleted: root.loadConfig()
 }
