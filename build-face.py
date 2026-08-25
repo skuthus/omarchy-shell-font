@@ -174,15 +174,28 @@ def replace_table(font: bytes, tag: bytes, new_raw: bytes) -> bytes:
     return pack_sfnt(sfnt_version, records)
 
 
-def fc_match(family: str, weight: str) -> tuple[str, int]:
-    query = f"{family}:weight={weight}:slant=roman"
-    raw = subprocess.check_output(["fc-match", "-f", "%{file}\n%{index}\n", query], text=True)
+STYLE_QUERY = {
+    "thin": "Thin",
+    "extralight": "Ultralight",
+    "light": "Light",
+    "regular": "Regular",
+    "medium": "Medium",
+    "demibold": "Semibold",
+    "bold": "Bold",
+    "extrabold": "Heavy",
+    "black": "Black",
+}
+
+
+def fc_query(query: str) -> tuple[str, int, str]:
+    raw = subprocess.check_output(["fc-match", "-f", "%{file}\n%{index}\n%{style}\n", query], text=True)
     lines = [ln.strip() for ln in raw.splitlines()]
     path = lines[0] if lines else ""
     try:
         index = int(lines[1]) if len(lines) > 1 and lines[1] else 0
     except ValueError:
         index = 0
+    style = lines[2] if len(lines) > 2 else ""
     if not path:
         raise SystemExit(f"no font matched {query!r}")
     path = os.path.realpath(path)
@@ -200,6 +213,16 @@ def fc_match(family: str, weight: str) -> tuple[str, int]:
             raise SystemExit("font file too large")
     finally:
         os.close(fd)
+    return path, index, style
+
+
+def fc_match(family: str, weight: str) -> tuple[str, int]:
+    style_name = STYLE_QUERY.get(weight)
+    if style_name:
+        path, index, style = fc_query(f"{family}:style={style_name}:slant=roman")
+        if style_name.lower() in style.lower():
+            return path, index
+    path, index, _ = fc_query(f"{family}:weight={weight}:slant=roman")
     return path, index
 
 
