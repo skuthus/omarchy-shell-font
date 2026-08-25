@@ -9,12 +9,14 @@
   "description": "Choose the Omarchy Quickshell font family and weight. Applies on every shell start so updates cannot reset the bar to monospace.",
   "kinds": [
     "bar-widget",
-    "service"
+    "service",
+    "overlay"
   ],
   "keepLoaded": true,
   "entryPoints": {
     "barWidget": "BarWidget.qml",
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "overlay": "Overlay.qml"
   },
   "barWidget": {
     "displayName": "Shell Font",
