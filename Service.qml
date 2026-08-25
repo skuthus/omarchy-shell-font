@@ -35,15 +35,11 @@ Item {
   }
 
   function applyStyle() {
-    if (!root.config.enabled) {
-      Style.fontFamily = "monospace"
-      return
-    }
-    if (root.config.weight === "regular") {
-      Style.fontFamily = root.config.family
-      return
-    }
-    Style.fontFamily = root.privateFamily
+    // Qt cannot load the synthetic OmarchyShellFont name from a font's
+    // name table — it falls back to a symbol face and scrambles the UI.
+    // Keep the QML family on the fontconfig alias; apply-font.sh remaps
+    // quickshell's monospace request to the chosen face.
+    Style.fontFamily = "monospace"
   }
 
   function shellQuote(value) {

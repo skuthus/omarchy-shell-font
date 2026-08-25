@@ -137,7 +137,10 @@ apply_font() {
   family_xml=$(xml_escape "$family")
   style_xml=$(xml_escape "$style")
   write_conf "$family_xml" "$style_xml"
-  fc-cache -f "$FONT_DIR" >/dev/null 2>&1 || true
+  # A directory-only rebuild leaves stale OmarchyShellFont faces in the
+  # user cache, so Qt can keep painting the previous (or a fallback) font.
+  rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/fontconfig"
+  fc-cache -f >/dev/null 2>&1 || true
 
   resolved=$(fc-match -f '%{family}' ":family=${PRIVATE_FAMILY}")
   if [[ $resolved != ${PRIVATE_FAMILY}* ]]; then
