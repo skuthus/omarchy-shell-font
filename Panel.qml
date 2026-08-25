@@ -130,7 +130,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      enabled: !fontSearch.activeFocus && !weightPicker.popupOpen
+      blocked: fontSearch.activeFocus || weightPicker.popupOpen
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -172,6 +172,11 @@ Panel {
           width: parent.width
           placeholderText: "Search fonts..."
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          onActiveFocusChanged: if (!activeFocus && keyCatcher) keyCatcher.forceActiveFocus()
+          Keys.onEscapePressed: {
+            text = ""
+            keyCatcher.forceActiveFocus()
+          }
         }
 
         ListView {
@@ -181,8 +186,11 @@ Panel {
           clip: true
           spacing: Style.spacing.xxs
           boundsBehavior: Flickable.StopAtBounds
-          reuseItems: true
+          flickableDirection: Flickable.VerticalFlick
+          interactive: true
+          reuseItems: false
           currentIndex: -1
+          keyNavigationEnabled: false
 
           readonly property var filtered: {
             var q = String(fontSearch.text || "").trim().toLowerCase()
@@ -198,18 +206,19 @@ Panel {
           model: filtered
 
           QQC.ScrollBar.vertical: QQC.ScrollBar {
-            policy: fontList.contentHeight > fontList.height ? QQC.ScrollBar.AlwaysOn : QQC.ScrollBar.AsNeeded
+            policy: QQC.ScrollBar.AlwaysOn
+            width: Style.space(8)
           }
 
           delegate: Rectangle {
             required property string modelData
             required property int index
-            width: fontList.width
+            width: Math.max(1, fontList.width - Style.space(10))
             height: Style.spacing.popupRowHeight
             radius: Style.cornerRadius
             color: modelData === root.draftFamily
               ? Style.selectedFillFor(root.barForeground, Color.accent)
-              : (index === fontList.currentIndex ? Style.hoverFillFor(root.barForeground, Color.accent) : "transparent")
+              : (hover.hovered ? Style.hoverFillFor(root.barForeground, Color.accent) : "transparent")
 
             Text {
               anchors.fill: parent
@@ -223,12 +232,12 @@ Panel {
               font.pixelSize: Style.font.body
             }
 
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onEntered: fontList.currentIndex = parent.index
-              onClicked: root.draftFamily = parent.modelData
+            HoverHandler {
+              id: hover
+            }
+
+            TapHandler {
+              onTapped: root.draftFamily = modelData
             }
           }
         }
