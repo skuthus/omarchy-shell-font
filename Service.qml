@@ -87,7 +87,7 @@ Item {
     if (!root.restartAfterApply) return
     if (!root.config.enabled) return
     if (root.config.weight === "regular") return
-    if (qtHasFamily(root.privateFamily)) return
+    // Qt caches faces; a new weight only paints after the shell restarts.
     Quickshell.execDetached(["omarchy", "restart", "shell"])
   }
 
