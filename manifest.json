@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "skuthus.shell-font",
+  "name": "Shell Font",
+  "version": "1.0.0",
+  "author": "skuthus",
+  "license": "MIT",
+  "homepage": "https://github.com/skuthus/omarchy-shell-font",
+  "description": "Choose the Omarchy Quickshell font family and weight. Applies on every shell start so updates cannot reset the bar to monospace.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shell Font",
+    "description": "Pick the font and weight used by the Omarchy bar and shell UI.",
+    "category": "Appearance",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}
