@@ -10,14 +10,15 @@ Item {
   property var manifest: null
 
   readonly property string home: Quickshell.env("HOME")
-  readonly property string configPath: home + "/.config/omarchy/shell-font.json"
-  readonly property string applyScript: home + "/.config/omarchy/plugins/skuthus.shell-font/apply-font.sh"
+  readonly property string pluginDir: home + "/.config/omarchy/plugins/skuthus.shell-font"
+  readonly property string applyScript: pluginDir + "/apply-font.sh"
+  readonly property string configTool: pluginDir + "/read-config.py"
   readonly property string facePath: home + "/.local/share/fonts/omarchy-shell-font/OmarchyShellFont.ttf"
   readonly property string privateFamily: "OmarchyShellFont"
+  readonly property int statusLimit: 200
 
   property var config: ({ enabled: false, family: "monospace", weight: "regular" })
   property bool ready: false
-  property bool writingConfig: false
   property bool applying: false
   property string lastStatus: ""
   property int faceEpoch: 0
@@ -40,10 +41,16 @@ Item {
     if (!raw || typeof raw !== "object") return next
     if (raw.enabled === true || raw.enabled === false) next.enabled = raw.enabled
     if (typeof raw.family === "string" && raw.family.trim().length > 0)
-      next.family = raw.family.trim()
+      next.family = raw.family.trim().slice(0, 128)
     if (typeof raw.weight === "string" && raw.weight.trim().length > 0)
-      next.weight = raw.weight.trim().toLowerCase()
+      next.weight = raw.weight.trim().slice(0, 32)
     return next
+  }
+
+  function clipStatus(value) {
+    var s = String(value || "").replace(/\s+/g, " ").trim()
+    if (s.length > root.statusLimit) s = s.slice(s.length - root.statusLimit)
+    return s
   }
 
   function applyStyle() {
@@ -57,10 +64,20 @@ Item {
       Style.fontFamily = "monospace"
   }
 
+  function loadConfig() {
+    if (!readProc.running) readProc.running = true
+  }
+
+  function saveConfig(next, restartIfNeeded) {
+    root.config = mergeConfig(next)
+    writeProc.restartWhenDone = restartIfNeeded !== false
+    writeProc.running = false
+    writeProc.command = ["/usr/bin/python3", root.configTool, "write"]
+    writeProc.running = true
+  }
+
   function runApply(restartWhenDone) {
-    if (applyProc.running) {
-      applyProc.running = false
-    }
+    if (applyProc.running) applyProc.running = false
     root.applying = true
     applyProc.restartWhenDone = restartWhenDone === true
     if (root.config.enabled && root.config.family)
@@ -70,48 +87,49 @@ Item {
     applyProc.running = true
   }
 
-  function saveConfig(next, restartIfNeeded) {
-    root.config = mergeConfig(next)
-    root.writingConfig = true
-    var json = JSON.stringify(root.config, null, 2) + "\n"
-    if (typeof configFile.setText === "function") configFile.setText(json)
-    runApply(restartIfNeeded !== false)
+  Process {
+    id: readProc
+    command: ["/usr/bin/python3", root.configTool]
+    running: true
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var raw = String(text || "").trim()
+          if (raw.length > 2048) raw = raw.slice(0, 2048)
+          root.config = root.mergeConfig(raw ? JSON.parse(raw) : {})
+        } catch (e) {
+          console.warn("skuthus.shell-font: bad config")
+          root.config = root.defaultConfig()
+        }
+        root.ready = true
+        root.faceEpoch = Date.now()
+        root.applyStyle()
+      }
+    }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) {
+      if (code !== 0) {
+        root.config = root.defaultConfig()
+        root.ready = true
+        root.applyStyle()
+      }
+    }
   }
 
-  FileView {
-    id: configFile
-    path: root.configPath
-    watchChanges: true
-    atomicWrites: true
-    printErrors: false
-
-    onLoaded: {
-      if (root.writingConfig) {
-        root.writingConfig = false
+  Process {
+    id: writeProc
+    property bool restartWhenDone: false
+    stdinEnabled: true
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onStarted: writeProc.write(JSON.stringify(root.config) + "\n")
+    onExited: function(code) {
+      if (code !== 0) {
+        console.warn("skuthus.shell-font: config write failed")
         return
       }
-      var raw = typeof configFile.text === "function" ? configFile.text() : configFile.text
-      try {
-        root.config = root.mergeConfig(raw && String(raw).trim() ? JSON.parse(String(raw)) : {})
-      } catch (e) {
-        console.warn("skuthus.shell-font: bad config", e)
-        root.config = root.defaultConfig()
-      }
-      root.ready = true
-      root.faceEpoch = Date.now()
-      root.applyStyle()
-    }
-
-    onLoadFailed: {
-      root.writingConfig = false
-      root.config = root.defaultConfig()
-      root.ready = true
-      root.applyStyle()
-    }
-
-    onFileChanged: {
-      if (root.writingConfig) return
-      configFile.reload()
+      root.runApply(writeProc.restartWhenDone)
     }
   }
 
@@ -121,21 +139,21 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var out = String(text || "").trim()
-        if (out.length > 0) root.lastStatus = out
+        var out = root.clipStatus(text)
+        if (out.length) root.lastStatus = out
       }
     }
     stderr: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var err = String(text || "").trim()
-        if (err.length > 0) root.lastStatus = err
+        var err = root.clipStatus(text)
+        if (err.length) root.lastStatus = err
       }
     }
     onExited: function(code) {
       root.applying = false
       if (code !== 0) {
-        console.warn("skuthus.shell-font: apply failed:", root.lastStatus)
+        console.warn("skuthus.shell-font: apply failed")
         return
       }
       root.faceEpoch = Date.now()
@@ -144,4 +162,6 @@ Item {
         Quickshell.execDetached(["omarchy", "restart", "shell"])
     }
   }
+
+  Component.onCompleted: root.loadConfig()
 }

@@ -15,7 +15,7 @@ Terminals are not touched.
 omarchy plugin add https://github.com/skuthus/omarchy-shell-font.git --enable
 ```
 
-Then click **Aa** on the bar, or:
+Then click **Aa** on the bar to open the overlay picker, or:
 
 ```bash
 omarchy-shell shell toggle skuthus.shell-font
