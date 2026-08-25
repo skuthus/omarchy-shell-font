@@ -1,5 +1,5 @@
 import QtQuick
-import QtQuick.Controls as QQC
+import QtQuick.Controls
 import qs.Commons
 import qs.Ui
 
@@ -29,35 +29,62 @@ Panel {
     { value: "black", label: "Black" }
   ]
 
-  readonly property var fontOptions: {
-    var raw = Qt.fontFamilies() || []
-    var skip = {
-      "OmarchyShellFont": true,
-      "InterBar": true
-    }
-    var seen = {}
-    var out = []
-    for (var i = 0; i < raw.length; i++) {
-      var name = String(raw[i] || "").trim()
-      if (!name || skip[name] || seen[name]) continue
-      seen[name] = true
-      out.push(name)
-    }
-    out.sort(function(a, b) { return a.localeCompare(b) })
-    return out
-  }
-
+  property var allFonts: []
+  property var visibleFonts: []
+  property string query: ""
+  property int cursor: 0
   property string draftFamily: "Inter"
   property string draftWeight: "semibold"
-  property bool draftReady: false
 
   readonly property bool dirty: {
-    if (!root.service || !root.service.config) return draftReady
+    if (!root.service || !root.service.config) return false
     var cfg = root.service.config
     if (!cfg.enabled) return true
     return draftFamily !== cfg.family || draftWeight !== cfg.weight
   }
   readonly property bool applying: !!(root.service && root.service.applying)
+
+  function collectFonts() {
+    var raw = Qt.fontFamilies() || []
+    var skip = { OmarchyShellFont: true, InterBar: true }
+    var seen = {}
+    var out = []
+    for (var i = 0; i < raw.length; i++) {
+      var name = String(raw[i] || "").trim()
+      if (!name || skip[name] || seen[name]) continue
+      if (name.indexOf("Awesome") !== -1 || name.indexOf("Nerd Font") !== -1) continue
+      seen[name] = true
+      out.push(name)
+    }
+    out.sort(function(a, b) { return a.localeCompare(b) })
+    allFonts = out
+    applyQuery()
+  }
+
+  function applyQuery() {
+    var q = query.trim().toLowerCase()
+    var src = allFonts
+    var out = []
+    for (var i = 0; i < src.length; i++) {
+      if (!q || String(src[i]).toLowerCase().indexOf(q) !== -1) out.push(src[i])
+    }
+    visibleFonts = out
+    var selected = out.indexOf(draftFamily)
+    cursor = selected >= 0 ? selected : 0
+    if (fontList && out.length)
+      fontList.positionViewAtIndex(cursor, ListView.Contain)
+  }
+
+  function moveCursor(dy) {
+    if (!visibleFonts.length) return
+    cursor = Math.max(0, Math.min(visibleFonts.length - 1, cursor + dy))
+    fontList.positionViewAtIndex(cursor, ListView.Contain)
+  }
+
+  function chooseCursor() {
+    if (cursor >= 0 && cursor < visibleFonts.length)
+      draftFamily = visibleFonts[cursor]
+  }
 
   function qtWeight(name) {
     switch (String(name)) {
@@ -78,7 +105,8 @@ Panel {
     var cfg = root.service.config
     draftFamily = cfg.family && cfg.family !== "monospace" ? cfg.family : "Inter"
     draftWeight = cfg.weight || "semibold"
-    draftReady = true
+    query = ""
+    collectFonts()
   }
 
   function applyDraft() {
@@ -97,7 +125,6 @@ Panel {
       family: "monospace",
       weight: "regular"
     }, false)
-    draftReady = true
   }
 
   function open() {
@@ -130,9 +157,20 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: fontSearch.activeFocus || weightPicker.popupOpen
+      blocked: weightPicker.popupOpen
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) { root.moveCursor(dy) }
+      onActivateRequested: root.chooseCursor()
+      onDeleteRequested: {
+        root.query = root.query.slice(0, Math.max(0, root.query.length - 1))
+        root.applyQuery()
+      }
+      onTextKey: function(t) {
+        if (!t || t === "j" || t === "k" || t === "h" || t === "l") return
+        root.query += t
+        root.applyQuery()
+      }
 
       Column {
         id: content
@@ -150,7 +188,7 @@ Panel {
 
         Text {
           width: parent.width
-          text: "Bar and shell UI. Terminals keep the system monospace font."
+          text: query.length ? ("Filter: " + query) : "Type to filter · j/k to move · Enter to select"
           color: root.barForeground
           opacity: 0.7
           wrapMode: Text.WordWrap
@@ -158,67 +196,34 @@ Panel {
           font.pixelSize: Style.font.caption
         }
 
-        Text {
-          text: "Family"
-          color: root.barForeground
-          opacity: 0.7
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.caption
-          font.bold: true
-        }
-
-        TextField {
-          id: fontSearch
-          width: parent.width
-          placeholderText: "Search fonts..."
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          onActiveFocusChanged: if (!activeFocus && keyCatcher) keyCatcher.forceActiveFocus()
-          Keys.onEscapePressed: {
-            text = ""
-            keyCatcher.forceActiveFocus()
-          }
-        }
-
         ListView {
           id: fontList
           width: parent.width
-          height: Style.space(420)
+          height: Style.space(240)
           clip: true
-          spacing: Style.spacing.xxs
+          spacing: Style.space(4)
           boundsBehavior: Flickable.StopAtBounds
-          flickableDirection: Flickable.VerticalFlick
-          interactive: true
-          reuseItems: false
-          currentIndex: -1
-          keyNavigationEnabled: false
+          interactive: contentHeight > height
+          currentIndex: root.cursor
+          model: root.visibleFonts
 
-          readonly property var filtered: {
-            var q = String(fontSearch.text || "").trim().toLowerCase()
-            var src = root.fontOptions
-            if (!q) return src
-            var out = []
-            for (var i = 0; i < src.length; i++) {
-              if (String(src[i]).toLowerCase().indexOf(q) !== -1) out.push(src[i])
-            }
-            return out
-          }
+          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-          model: filtered
+          onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
 
-          QQC.ScrollBar.vertical: QQC.ScrollBar {
-            policy: QQC.ScrollBar.AlwaysOn
-            width: Style.space(8)
-          }
-
-          delegate: Rectangle {
+          delegate: Item {
             required property string modelData
             required property int index
-            width: Math.max(1, fontList.width - Style.space(10))
-            height: Style.spacing.popupRowHeight
-            radius: Style.cornerRadius
-            color: modelData === root.draftFamily
-              ? Style.selectedFillFor(root.barForeground, Color.accent)
-              : (hover.hovered ? Style.hoverFillFor(root.barForeground, Color.accent) : "transparent")
+            width: ListView.view.width
+            height: Style.space(28)
+
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.cornerRadius
+              color: modelData === root.draftFamily
+                ? Style.selectedFillFor(root.barForeground, Color.accent)
+                : (index === root.cursor ? Style.hoverFillFor(root.barForeground, Color.accent) : "transparent")
+            }
 
             Text {
               anchors.fill: parent
@@ -228,16 +233,18 @@ Panel {
               text: modelData
               elide: Text.ElideRight
               color: root.barForeground
-              font.family: modelData
+              font.family: root.bar ? root.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.body
             }
 
-            HoverHandler {
-              id: hover
-            }
-
-            TapHandler {
-              onTapped: root.draftFamily = modelData
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              onEntered: root.cursor = index
+              onClicked: {
+                root.cursor = index
+                root.draftFamily = modelData
+              }
             }
           }
         }
@@ -250,45 +257,17 @@ Panel {
           options: root.weightOptions
           fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
           foreground: root.barForeground
-          onChanged: function(value) {
-            root.draftWeight = value
-          }
+          onChanged: function(value) { root.draftWeight = value }
         }
 
-        Rectangle {
+        Text {
           width: parent.width
-          height: previewCol.implicitHeight + Style.space(16)
-          radius: Style.cornerRadius
-          color: Style.normalFill
-          border.width: Style.normalBorderWidth
-          border.color: Style.normalBorderColor
-
-          Column {
-            id: previewCol
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.margins: Style.space(10)
-            spacing: Style.space(4)
-
-            Text {
-              width: parent.width
-              text: "8:24 AM   12345"
-              color: root.barForeground
-              font.family: root.draftFamily
-              font.weight: root.qtWeight(root.draftWeight)
-              font.pixelSize: Style.font.title
-            }
-
-            Text {
-              width: parent.width
-              text: root.draftFamily + " · " + root.draftWeight
-              color: root.barForeground
-              opacity: 0.65
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
-              font.pixelSize: Style.font.caption
-            }
-          }
+          text: draftFamily + " · " + draftWeight
+          color: root.barForeground
+          font.family: draftFamily
+          font.weight: root.qtWeight(draftWeight)
+          font.pixelSize: Style.font.title
+          elide: Text.ElideRight
         }
 
         Button {
