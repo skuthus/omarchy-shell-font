@@ -93,6 +93,10 @@ Item {
     visibleFonts = out
     var selected = out.indexOf(draftFamily)
     cursor = selected >= 0 ? selected : 0
+    if (caretBlink) {
+      caretBlink.phase = true
+      caretBlink.restart()
+    }
     Qt.callLater(function() {
       if (fontList && out.length)
         fontList.positionViewAtIndex(cursor, ListView.Contain)
